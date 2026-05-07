@@ -1,0 +1,29 @@
+[Unit]
+Description=AI Gateway
+After=llama.service
+Requires=llama.service
+
+[Container]
+ContainerName=gateway
+Image=localhost/gateway:b8901
+Systemd=container
+
+# ---- Security -------------------------------------------------
+User=10001
+Group=10001
+NoNewPrivileges=true
+ReadOnly=false            # needed for /tmp writes
+DropCapability=ALL
+SeccompProfile=default
+SecurityLabelDisable=false
+
+Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256M
+
+# ---- Networking (local only) ------------------------------------
+PublishPort=127.0.0.1:8000:8000
+Network=podman
+PodName=ai-pod
+
+# ---- Runtime configuration ---------------------------------------
+Environment=LLAMA_URL=http://llama:8080
+EnvironmentFile=%h/.config/gateway.env

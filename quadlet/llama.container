@@ -1,0 +1,39 @@
+[Unit]
+Description=LLama.cpp
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=llama
+Image=localhost/llama:b8901
+Systemd=container
+
+# ---- GPU access -------------------------------------------------
+Device=/dev/dri/renderD128
+Device=/dev/kfd
+GroupAdd=render
+
+# ---- Security -------------------------------------------------
+User=10001
+Group=10001
+NoNewPrivileges=true
+ReadOnly=true
+DropCapability=ALL
+SeccompProfile=default
+SecurityLabelDisable=false
+
+# ---- Filesystem isolation ----------------------------------------
+Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256M
+
+# ---- Networking (local only) ------------------------------------
+PublishPort=127.0.0.1:8080:8080
+Network=podman
+PodName=ai-pod
+
+# ---- Model storage -----------------------------------------------
+Volume=%h/models:/models:ro,Z   # %h expands to $HOME
+
+# ---- Runtime environment -----------------------------------------
+EnvironmentFile=%h/.config/llama.env
+Environment=GGML_VULKAN_VISIBLE_DEVICES=0
+Environment=VK_LOADER_DEBUG=error

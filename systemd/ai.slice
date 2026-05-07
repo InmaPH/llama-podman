@@ -1,0 +1,26 @@
+[Unit]
+Description=AI Workloads Slice (LLM + Gateway + Embeddings)
+Documentation=man:systemd.slice
+
+[Slice]
+
+# ---- CPU ----
+# Allow up to ~6 cores worth of CPU time (adjust if needed)
+CPUQuota=600%
+CPUWeight=1000
+
+# ---- Memory ----
+# Leave headroom for OS + GPU drivers + buffers
+MemoryMax=28G
+MemoryHigh=24G
+
+# ---- Swap behavior ----
+# Avoid swap thrashing during inference
+MemorySwapMax=0
+
+# ---- IO priority (important for model loading) ----
+IOWeight=1000
+
+# ---- Process behavior ----
+# Prevent runaway inference from killing system
+TasksMax=4096
