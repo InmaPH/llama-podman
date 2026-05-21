@@ -19,7 +19,7 @@ TARGET_UNIT="ai.target"
 h() { echo -e "\n[deploy] $*"; }
 
 # --------------------------------------------------
-# 0️⃣ Verify images exist
+# Verify images exist
 # --------------------------------------------------
 if ! podman image exists localhost/llama:b8901; then
     echo "[error] Image localhost/llama:b8901 missing – run build.sh first."
@@ -31,15 +31,24 @@ if ! podman image exists localhost/gateway:b8901; then
 fi
 
 # --------------------------------------------------
-# 1️⃣ Install Quadlet container definitions (user‑wide)
+# Remove old generated Quadlet units
+# --------------------------------------------------
+h "Removing cached/generated Quadlet units"
+rm -f "${USER_SYSTEMD_DIR}/llama.service" \
+      "${USER_SYSTEMD_DIR}/gateway.service" \
+      "${USER_SYSTEMD_DIR}/ai.target" \
+      "${USER_SYSTEMD_DIR}/ai.slice" 2>/dev/null || true
+
+# --------------------------------------------------
+# Install Quadlet container definitions (user‑wide)
 # --------------------------------------------------
 h "Copying Quadlet files to ${USER_QUADLET_DIR}"
 mkdir -p "${USER_QUADLET_DIR}"
 cp "${QUADLET_DIR}/llama.container"   "${USER_QUADLET_DIR}/"
 cp "${QUADLET_DIR}/gateway.container" "${USER_QUADLET_DIR}/"
-
+cp "${QUADLET_DIR}/ai.pod"            "${USER_QUADLET_DIR}/"
 # --------------------------------------------------
-# 2️⃣ Install slice & target (user‑wide systemd)
+# Install slice & target (user‑wide systemd)
 # --------------------------------------------------
 mkdir -p "${USER_SYSTEMD_DIR}"
 
@@ -65,45 +74,54 @@ EOF
 fi
 
 # --------------------------------------------------
-# 3️⃣ Copy the environment files into $HOME/.config
+# Copy the environment files into $HOME/.config
 # --------------------------------------------------
 h "Copying llama.env and gateway.env into ${HOME}/.config"
+
 ENV_DEST="${HOME}/.config"
 mkdir -p "${ENV_DEST}"
 
-if [[ -f "${PROJECT_ROOT}/llama.env" && -f "${PROJECT_ROOT}/gateway.env" ]]; then
-    cp "${PROJECT_ROOT}/llama.env"   "${ENV_DEST}/llama.env"
-    cp "${PROJECT_ROOT}/gateway.env" "${ENV_DEST}/gateway.env"
+if [[ -f "${ENV_SRC_DIR}/llama.env" && -f "${ENV_SRC_DIR}/gateway.env" ]]; then
+    cp "${ENV_SRC_DIR}/llama.env"   "${ENV_DEST}/llama.env"
+    cp "${ENV_SRC_DIR}/gateway.env" "${ENV_DEST}/gateway.env"
 else
-    if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-        h "Single .env detected – extracting needed variables"
-        grep -E '^(MODEL|THREADS|CONTEXT_SIZE|GPU_LAYERS|HOST|PORT)=' \
-            "${PROJECT_ROOT}/.env" > "${ENV_DEST}/llama.env"
-
-        {
-            echo "HOST=0.0.0.0"
-            echo "PORT=8000"
-            grep -E '^LLAMA_URL=' "${PROJECT_ROOT}/.env"
-        } > "${ENV_DEST}/gateway.env"
-    else
-        echo "[warning] No env files found – containers will start with defaults."
-    fi
+    echo "[warning] Missing config/llama.env or config/gateway.env"
+    echo "[warning] Containers will start with defaults."
 fi
 
 # --------------------------------------------------
-# 4️⃣ Reload the user systemd daemon
+# Clean stop 
 # --------------------------------------------------
-h "Reloading user systemd daemon"
+h "Stopping AI stack"
+systemctl --user stop "${TARGET_UNIT}" 2>/dev/null || true
+systemctl --user stop llama.service gateway.service ai-pod.service 2>/dev/null || true
+
+# --------------------------------------------------
+# Reset systemd failure state (prevents ghost errors)
+# --------------------------------------------------
+h "Resetting failed state"
+systemctl --user reset-failed llama.service gateway.service 2>/dev/null || true
+
+# --------------------------------------------------
+# Force Quadlet regeneration 
+# --------------------------------------------------
+h "Re-executing systemd manager (Quadlet refresh)"
+systemctl --user daemon-reexec
+
+# --------------------------------------------------
+# Reload units after reexec
+# --------------------------------------------------
+h "Reloading systemd daemon"
 systemctl --user daemon-reload
 
 # --------------------------------------------------
-# 5️⃣ Enable & start the target
+# Start stack cleanly
 # --------------------------------------------------
-h "Enabling and starting ${TARGET_UNIT}"
-systemctl --user enable --now "${TARGET_UNIT}"
+h "Starting AI stack"
+systemctl --user start "${TARGET_UNIT}"
 
 # --------------------------------------------------
-# 6️⃣ Show status & tail logs
+# Show status & tail logs
 # --------------------------------------------------
 h "Service status"
 systemctl --user status "${TARGET_UNIT}" llama.service gateway.service --no-pager
@@ -111,4 +129,4 @@ systemctl --user status "${TARGET_UNIT}" llama.service gateway.service --no-page
 h "Tail recent logs (Ctrl‑C to stop)…"
 journalctl --user -u llama.service -u gateway.service -n 30 -f || true
 
-h "✅ Deployment finished."
+h "✔ Deployment finished"

@@ -12,13 +12,13 @@ GATEWAY_IMG="localhost/gateway:${TAG}"
 h() { echo -e "\n[build] $*"; }
 
 # --------------------------------------------------
-# 1️⃣ Remove previous tags (layers stay cached)
+# Remove previous tags (layers stay cached)
 # --------------------------------------------------
 h "Removing previous tags (if any)…"
 podman rmi -f "${LLAMA_IMG}" "${GATEWAY_IMG}" || true
 
 # --------------------------------------------------
-# 2️⃣ Build images – reuse local layers, never pull from the internet
+# Build images – reuse local layers, never pull from the internet
 # --------------------------------------------------
 h "Building llama image…"
 podman build --pull=false \
@@ -33,9 +33,9 @@ podman build --pull=false \
     "${PROJECT_ROOT}"
 
 # --------------------------------------------------
-# 3️⃣ Prune dangling images to save space
+# Prune dangling images to save space
 # --------------------------------------------------
 h "Pruning dangling images…"
 podman image prune -f || true
 
-h "✅ Image build completed."
+h "✔ Image build completed."

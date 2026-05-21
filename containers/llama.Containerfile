@@ -46,9 +46,10 @@ RUN cd llama.cpp && \
         -DGGML_VULKAN=ON \
         -DGGML_NATIVE=ON \
         -DGGML_AVX2=ON \
-        -DCMAKE_BUILD_TYPE=Release && \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/llama && \
     cmake --build build -j$(nproc) && \
-    strip build/bin/llama-server
+    cmake --install build
 
 
 # -------------------------
@@ -64,14 +65,14 @@ RUN dnf install -y \
     tini \
     && dnf clean all
 
-# Copy Vulkan SDK from the builder stage to runtime
+# Copy Vulkan SDK and llama from the builder stage to runtime
 COPY --from=builder /opt/1.4.341.1/x86_64 /opt/1.4.341.1/x86_64
+COPY --from=builder /opt/llama /opt/llama
 
 # Set environment variables for Vulkan SDK
 ENV VULKAN_SDK=/opt/1.4.341.1/x86_64
-ENV PATH=$VULKAN_SDK/bin:$PATH
-ENV LD_LIBRARY_PATH=$VULKAN_SDK/lib:$LD_LIBRARY_PATH
-ENV VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/nvidia_icd.json
+ENV PATH=$VULKAN_SDK/bin:/opt/llama/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/llama/lib:/opt/llama/lib64:$VULKAN_SDK/lib:$LD_LIBRARY_PATH
 ENV VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
 
 # Create a non-root user
@@ -79,13 +80,10 @@ RUN useradd -m -u 1000 llama
 
 WORKDIR /app
 
-# Copy the llama-server binary from the builder stage
-COPY --from=builder /src/llama.cpp/build/bin/llama-server /app/llama-server
-COPY containers/llama.entrypoint.sh /entrypoint.sh
-
 # Set permissions for the llama server and entrypoint
-RUN chmod 555 /app/llama-server && \
-    chmod 500 /entrypoint.sh && \
+COPY containers/llama.entrypoint.sh /entrypoint.sh
+RUN chown llama:llama /entrypoint.sh && \
+    chmod 755 /entrypoint.sh && \
     mkdir -p /models && \
     chown -R llama:llama /app /models
 
@@ -102,4 +100,4 @@ EXPOSE 8080
 HEALTHCHECK CMD pgrep llama-server || exit 1
 
 # Entry point for the container
-ENTRYPOINT ["/usr/bin/tini", "--", "/llama.entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

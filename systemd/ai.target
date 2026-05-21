@@ -2,11 +2,12 @@
 Description=Offline AI Stack Target (LLM + Gateway + Supporting Services)
 Documentation=man:systemd.target
 
-# Start local AI services only
-Wants=llama-container.service
-Wants=gateway-container.service
+Wants=llama.service
+Wants=gateway.service
 
-# Ensure basic system is up
+After=network-online.target
 After=ai.slice
 Conflicts=shutdown.target
+
+[Install]
 WantedBy=multi-user.target

@@ -47,15 +47,16 @@ fi
 : "${OMP_NUM_THREADS:=$THREADS}"
 export OMP_NUM_THREADS
 
-#-------------------------
+# -------------------------
 # Startup validation 
 # -------------------------
-
 echo "[llama] validating runtime..."
 
+LLAMA_BINARY="/opt/llama/bin/llama-server"
+
 # Binary check
-if [ ! -x /app/llama-server ]; then
-  echo "[llama] ERROR: llama-server not found or not executable"
+if [ ! -x "$LLAMA_BINARY" ]; then
+  echo "[llama] ERROR: llama-server not found or not executable at $LLAMA_BINARY"
   exit 1
 fi
 
@@ -74,13 +75,8 @@ fi
 MODEL_DIR="$(dirname "$MODEL")"
 
 # Multi-file GGUF validation (your Qwen setup)
-for f in \
-  qwen2.5-14b-instruct-q4_k_m-00002-of-00003.gguf \
-  qwen2.5-14b-instruct-q4_k_m-00003-of-00003.gguf; do
-  if [ ! -f "$MODEL_DIR/$f" ]; then
-    echo "[llama] ERROR: missing model shard $f"
-    exit 1
-  fi
+for shard in "$MODEL_DIR"/*.gguf; do
+  [ -f "$shard" ] || { echo "[llama] ERROR: missing model shard $shard"; exit 1; }
 done
 
 # -------------------------
@@ -103,7 +99,7 @@ echo "[llama] vk_debug=$VK_LOADER_DEBUG"
 # -------------------------
 # Execution
 # -------------------------
-exec /app/llama-server \
+exec "$LLAMA_BINARY" \
   --host "$HOST" \
   --port "$PORT" \
   -m "$MODEL" \
