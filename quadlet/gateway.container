@@ -11,5 +11,5 @@ ReadOnly=false            # needed for /tmp writes
 Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256M
 
 # ---- Runtime configuration ---------------------------------------
-EnvironmentFile=%h/.config/gateway.env
+EnvironmentFile=%h/.config/containers/env/gateway.env
 LogDriver=journald

@@ -5,7 +5,7 @@ import os
 
 app = FastAPI()
 
-LLAMA_URL = os.getenv("LLAMA_URL", "http://llama:8080")
+LLAMA_URL = os.getenv("LLAMA_URL")
 
 
 @app.get("/generate")

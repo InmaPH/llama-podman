@@ -2,14 +2,32 @@
 set -euo pipefail
 
 # -------------------------
-# Required config (from Quadlet)
+# Required config validation
 # -------------------------
-: "${MODEL:?MODEL not set}"
-: "${THREADS:?THREADS not set}"
-: "${GPU_LAYERS:?GPU_LAYERS not set}"
-: "${CONTEXT_SIZE:?CONTEXT_SIZE not set}"
-: "${HOST:?HOST not set}"
-: "${PORT:?PORT not set}"
+
+missing=0
+
+require_var() {
+  var_name="$1"
+  value="${!var_name:-}"
+
+  if [ -z "$value" ]; then
+    echo "[llama] ERROR: missing required env var: $var_name"
+    missing=1
+  fi
+}
+
+require_var MODEL
+require_var THREADS
+require_var GPU_LAYERS
+require_var CONTEXT_SIZE
+require_var HOST
+require_var PORT
+
+if [ "$missing" -ne 0 ]; then
+  echo "[llama] FATAL: missing required configuration, aborting startup"
+  exit 1
+fi
 
 # -------------------------
 # GPU runtime environment
@@ -44,13 +62,24 @@ if [ "$THREADS" -lt 4 ]; then
   echo "[llama] WARNING: THREADS raised to 4 (minimum safe baseline)"
   THREADS=4
 fi
+
 : "${OMP_NUM_THREADS:=$THREADS}"
 export OMP_NUM_THREADS
 
 # -------------------------
-# Startup validation 
+# Startup validation
 # -------------------------
+
 echo "[llama] validating runtime..."
+
+if command -v vulkaninfo >/dev/null 2>&1; then
+  if ! vulkaninfo --summary >/dev/null 2>&1; then
+    echo "[llama] ERROR: Vulkan is not functional"
+    exit 1
+  fi
+else
+  echo "[llama] WARNING: vulkaninfo not installed"
+fi
 
 LLAMA_BINARY="/opt/llama/bin/llama-server"
 
@@ -60,9 +89,9 @@ if [ ! -x "$LLAMA_BINARY" ]; then
   exit 1
 fi
 
-# GPU device check
-if [ ! -e /dev/dri/renderD128 ]; then
-  echo "[llama] ERROR: GPU device not available (/dev/dri/renderD128)"
+# GPU check
+if ! ls /dev/dri/renderD* >/dev/null 2>&1; then
+  echo "[llama] ERROR: no GPU render device found"
   exit 1
 fi
 
@@ -74,31 +103,37 @@ fi
 
 MODEL_DIR="$(dirname "$MODEL")"
 
-# Multi-file GGUF validation (your Qwen setup)
+set -- "$MODEL_DIR"/*.gguf
+[ -e "$1" ] || {
+  echo "[llama] ERROR: no model shards found in $MODEL_DIR"
+  exit 1
+}
+
 for shard in "$MODEL_DIR"/*.gguf; do
-  [ -f "$shard" ] || { echo "[llama] ERROR: missing model shard $shard"; exit 1; }
+  [ -f "$shard" ] || {
+    echo "[llama] ERROR: missing model shard $shard"
+    exit 1
+  }
 done
 
 # -------------------------
-# Logging 
+# Logging
 # -------------------------
-echo "[llama] booting container"
 
+echo "[llama] booting container"
 echo "[llama] host=$HOST port=$PORT"
 echo "[llama] model=$MODEL"
-
 echo "[llama] threads=$THREADS"
 echo "[llama] omp_threads=$OMP_NUM_THREADS"
-
 echo "[llama] context=$CONTEXT_SIZE"
 echo "[llama] gpu_layers=$GPU_LAYERS"
-
 echo "[llama] vulkan_devices=$GGML_VULKAN_VISIBLE_DEVICES"
-echo "[llama] vk_debug=$VK_LOADER_DEBUG"
+echo "[llama] vulkan_loader=auto"
 
 # -------------------------
 # Execution
 # -------------------------
+
 exec "$LLAMA_BINARY" \
   --host "$HOST" \
   --port "$PORT" \

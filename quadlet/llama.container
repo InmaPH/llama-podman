@@ -4,7 +4,7 @@ Image=localhost/llama:b8901
 Pod=ai.pod
 
 # ---- GPU access -------------------------------------------------
-AddDevice=/dev/dri/renderD128
+AddDevice=/dev/dri/
 
 # ---- Security -------------------------------------------------
 User=1000
@@ -17,8 +17,5 @@ Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256M
 Volume=/home/iph/Documents/Repo/llama-podman/models:/models:ro,Z
 
 # ---- Runtime environment -----------------------------------------
-EnvironmentFile=%h/.config/llama.env
-Environment=GGML_VULKAN_VISIBLE_DEVICES=0
-Environment=VK_LOADER_DEBUG=error
-Environment=OMP_NUM_THREADS=10
+EnvironmentFile=%h/.config/containers/env/llama.env
 LogDriver=journald

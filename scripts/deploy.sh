@@ -1,132 +1,118 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------
 # scripts/deploy.sh – install Quadlet files & start the AI stack
+# Pod-based architecture (ai-pod.service)
 # ------------------------------------------------------------
 set -euo pipefail
 
-# ---------- Resolve the project root ----------
-SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"          # …/llama-podman/scripts/deploy.sh
-PROJECT_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"  # …/llama-podman
+# ------------------------------------------------------------
+# Project root + standardized paths
+# ------------------------------------------------------------
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# ---------- Important directories ----------
-QUADLET_DIR="${PROJECT_ROOT}/quadlet"                     # container definitions
-ENV_SRC_DIR="${PROJECT_ROOT}/config"                     # optional .env source dir
-USER_QUADLET_DIR="${HOME}/.config/containers/systemd"    # where podman‑quadlet watches
-USER_SYSTEMD_DIR="${HOME}/.config/systemd/user"          # where systemd reads .slice/.target
-TARGET_UNIT="ai.target"
+QUADLET_SRC="${PROJECT_ROOT}/quadlet"
+SYSTEMD_SRC="${PROJECT_ROOT}/systemd"
+ENV_SRC="${PROJECT_ROOT}/config"
 
-# ---------- Helper ----------
+QUADLET_DST="${HOME}/.config/containers/systemd"
+SYSTEMD_DST="${HOME}/.config/systemd/user"
+ENV_DST="${HOME}/.config/containers/env"
+
+TARGET="ai.target"
+
 h() { echo -e "\n[deploy] $*"; }
 
 # --------------------------------------------------
 # Verify images exist
 # --------------------------------------------------
-if ! podman image exists localhost/llama:b8901; then
-    echo "[error] Image localhost/llama:b8901 missing – run build.sh first."
-    exit 1
-fi
-if ! podman image exists localhost/gateway:b8901; then
-    echo "[error] Image localhost/gateway:b8901 missing – run build.sh first."
-    exit 1
-fi
+for img in localhost/llama:b8901 localhost/gateway:b8901; do
+    if ! podman image exists "$img"; then
+        echo "[error] Missing image: $img (run build.sh first)"
+        exit 1
+    fi
+done
 
 # --------------------------------------------------
-# Remove old generated Quadlet units
+# Install Quadlet definitions
 # --------------------------------------------------
-h "Removing cached/generated Quadlet units"
-rm -f "${USER_SYSTEMD_DIR}/llama.service" \
-      "${USER_SYSTEMD_DIR}/gateway.service" \
-      "${USER_SYSTEMD_DIR}/ai.target" \
-      "${USER_SYSTEMD_DIR}/ai.slice" 2>/dev/null || true
+h "Copying Quadlet files"
+
+mkdir -p "${QUADLET_DST}"
+
+cp "${QUADLET_SRC}/llama.container"   "${QUADLET_DST}/"
+cp "${QUADLET_SRC}/gateway.container" "${QUADLET_DST}/"
+cp "${QUADLET_SRC}/ai.pod"            "${QUADLET_DST}/"
 
 # --------------------------------------------------
-# Install Quadlet container definitions (user‑wide)
+# Install systemd units (slice + target)
 # --------------------------------------------------
-h "Copying Quadlet files to ${USER_QUADLET_DIR}"
-mkdir -p "${USER_QUADLET_DIR}"
-cp "${QUADLET_DIR}/llama.container"   "${USER_QUADLET_DIR}/"
-cp "${QUADLET_DIR}/gateway.container" "${USER_QUADLET_DIR}/"
-cp "${QUADLET_DIR}/ai.pod"            "${USER_QUADLET_DIR}/"
-# --------------------------------------------------
-# Install slice & target (user‑wide systemd)
-# --------------------------------------------------
-mkdir -p "${USER_SYSTEMD_DIR}"
+h "Installing systemd units"
 
-if [[ -f "${PROJECT_ROOT}/systemd/ai.slice" ]]; then
-    h "Installing ai.slice"
-    cp "${PROJECT_ROOT}/systemd/ai.slice" "${USER_SYSTEMD_DIR}/"
-fi
+mkdir -p "${SYSTEMD_DST}"
 
-if [[ -f "${PROJECT_ROOT}/systemd/ai.target" ]]; then
-    h "Installing ai.target"
-    cp "${PROJECT_ROOT}/systemd/ai.target" "${USER_SYSTEMD_DIR}/"
+cp "${SYSTEMD_SRC}/ai.slice"  "${SYSTEMD_DST}/"
+cp "${SYSTEMD_SRC}/ai.target" "${SYSTEMD_DST}/"
+
+# --------------------------------------------------
+# Install environment files (Quadlet runtime config)
+# --------------------------------------------------
+h "Installing environment files"
+
+mkdir -p "${ENV_DST}"
+
+if [[ -f "${ENV_SRC}/llama.env" ]]; then
+    cp "${ENV_SRC}/llama.env" "${ENV_DST}/llama.env"
 else
-    h "Creating minimal ${TARGET_UNIT}"
-    cat > "${USER_SYSTEMD_DIR}/${TARGET_UNIT}" <<'EOF'
-[Unit]
-Description=AI stack – Llama + Gateway
-Wants=llama.service gateway.service
-After=network-online.target
-
-[Install]
-WantedBy=default.target
-EOF
+    echo "[warning] Missing llama.env"
 fi
 
-# --------------------------------------------------
-# Copy the environment files into $HOME/.config
-# --------------------------------------------------
-h "Copying llama.env and gateway.env into ${HOME}/.config"
-
-ENV_DEST="${HOME}/.config"
-mkdir -p "${ENV_DEST}"
-
-if [[ -f "${ENV_SRC_DIR}/llama.env" && -f "${ENV_SRC_DIR}/gateway.env" ]]; then
-    cp "${ENV_SRC_DIR}/llama.env"   "${ENV_DEST}/llama.env"
-    cp "${ENV_SRC_DIR}/gateway.env" "${ENV_DEST}/gateway.env"
+if [[ -f "${ENV_SRC}/gateway.env" ]]; then
+    cp "${ENV_SRC}/gateway.env" "${ENV_DST}/gateway.env"
 else
-    echo "[warning] Missing config/llama.env or config/gateway.env"
-    echo "[warning] Containers will start with defaults."
+    echo "[warning] Missing gateway.env"
 fi
 
 # --------------------------------------------------
-# Clean stop 
+# Clean stop (runtime only)
 # --------------------------------------------------
 h "Stopping AI stack"
-systemctl --user stop "${TARGET_UNIT}" 2>/dev/null || true
-systemctl --user stop llama.service gateway.service ai-pod.service 2>/dev/null || true
+
+systemctl --user stop "${TARGET}" 2>/dev/null || true
+systemctl --user stop ai-pod.service 2>/dev/null || true
 
 # --------------------------------------------------
-# Reset systemd failure state (prevents ghost errors)
+# Reset runtime failure state
 # --------------------------------------------------
 h "Resetting failed state"
-systemctl --user reset-failed llama.service gateway.service 2>/dev/null || true
+
+systemctl --user reset-failed ai-pod.service 2>/dev/null || true
 
 # --------------------------------------------------
-# Force Quadlet regeneration 
-# --------------------------------------------------
-h "Re-executing systemd manager (Quadlet refresh)"
-systemctl --user daemon-reexec
-
-# --------------------------------------------------
-# Reload units after reexec
+# Reload systemd (Quadlet refresh)
 # --------------------------------------------------
 h "Reloading systemd daemon"
+
 systemctl --user daemon-reload
 
 # --------------------------------------------------
-# Start stack cleanly
+# Start stack
 # --------------------------------------------------
 h "Starting AI stack"
-systemctl --user start "${TARGET_UNIT}"
+
+systemctl --user start "${TARGET}"
 
 # --------------------------------------------------
-# Show status & tail logs
+# Status
 # --------------------------------------------------
 h "Service status"
-systemctl --user status "${TARGET_UNIT}" llama.service gateway.service --no-pager
 
-h "Tail recent logs (Ctrl‑C to stop)…"
-journalctl --user -u llama.service -u gateway.service -n 30 -f || true
+systemctl --user status "${TARGET}" ai-pod.service --no-pager || true
+
+# --------------------------------------------------
+# Logs
+# --------------------------------------------------
+h "Recent logs"
+
+journalctl --user -u ai-pod.service -n 50 --no-pager || true
 
 h "✔ Deployment finished"

@@ -2,11 +2,9 @@
 Description=Offline AI Stack Target (LLM + Gateway + Supporting Services)
 Documentation=man:systemd.target
 
-Wants=llama.service
-Wants=gateway.service
+Wants=ai-pod.service
+After=ai-pod.service
 
-After=network-online.target
-After=ai.slice
 Conflicts=shutdown.target
 
 [Install]

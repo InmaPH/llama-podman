@@ -37,7 +37,6 @@ RUN curl -LO https://sdk.lunarg.com/sdk/download/1.4.341.1/linux/vulkansdk-linux
 ENV VULKAN_SDK=/opt/1.4.341.1/x86_64
 ENV PATH=$VULKAN_SDK/bin:$PATH
 ENV LD_LIBRARY_PATH=$VULKAN_SDK/lib:$LD_LIBRARY_PATH
-ENV VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/nvidia_icd.json
 ENV VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
 
 # Build llama.cpp
@@ -62,6 +61,10 @@ RUN dnf install -y \
     openblas \
     mesa-vulkan-drivers \
     vulkan-loader \
+    libX11 \
+    libxkbcommon \
+    libXcursor \
+    libXi \
     tini \
     && dnf clean all
 
@@ -91,13 +94,9 @@ USER llama
 
 # Set Vulkan-related environment variables
 ENV GGML_VULKAN_VISIBLE_DEVICES=0
-ENV VK_LOADER_DEBUG=error
 
 # Expose the necessary port
 EXPOSE 8080
-
-# Healthcheck to ensure llama-server is running
-HEALTHCHECK CMD pgrep llama-server || exit 1
 
 # Entry point for the container
 ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
